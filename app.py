@@ -5,9 +5,8 @@ import plotly.express as px
 
 st.set_page_config(page_title="Sensor Historical Trend Analysis", layout="wide")
 
-# ✅ REQUIRED HEADING
+# REQUIRED HEADING
 st.title("📊 Sensor Historical Trend Analysis")
-
 st.markdown("Upload the exported MQTT JSON file to visualize historical sensor trends.")
 
 # ---------------- FILE UPLOADER ----------------
@@ -22,23 +21,31 @@ if uploaded_file is None:
 
 raw_data = json.load(uploaded_file)
 
-# ---------------- PARSE JSON ----------------
 records = []
 
+# ---------------- PARSE JSON SAFELY ----------------
 for msg in raw_data:
-    if msg.get("topic") == "sensor1/data":
-        records.append({
-            "timestamp": pd.to_datetime(msg["createAt"]),
-            "temperature": msg["payload"]["temp"],
-            "moisture": msg["payload"]["moisture"],
-            "co2": msg["payload"]["co2"]
-        })
+    if msg.get("topic") == "sensor1/data" and "payload" in msg:
+        try:
+            payload = json.loads(msg["payload"])  # ✅ FIX HERE
 
-df = pd.DataFrame(records).sort_values("timestamp")
+            records.append({
+                "timestamp": pd.to_datetime(msg["createAt"]),
+                "temperature": payload.get("temp"),
+                "moisture": payload.get("moisture"),
+                "co2": payload.get("co2")
+            })
+        except Exception:
+            continue  # skip malformed entries safely
 
-if df.empty:
-    st.error("No valid sensor data found in the uploaded file.")
+# ---------------- DATAFRAME CHECK ----------------
+if not records:
+    st.error("No valid sensor data found in the uploaded JSON file.")
     st.stop()
+
+df = pd.DataFrame(records)
+df = df.dropna()
+df = df.sort_values("timestamp")
 
 # ---------------- TIME FILTER ----------------
 minutes = st.sidebar.slider("Show last (minutes)", 5, 180, 30)
