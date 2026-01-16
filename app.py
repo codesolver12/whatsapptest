@@ -32,50 +32,47 @@ st.write("Detected columns:", data.columns.tolist())
 # Detect Timestamp Column
 # -----------------------
 time_col = None
-time_keywords = ["timestamp", "time", "datetime", "date"]
-
 for col in data.columns:
-    if any(key in col.lower() for key in time_keywords):
+    if "time" in col.lower():
         time_col = col
         break
 
 if time_col is None:
-    st.error("No time-related column found. Please check the Excel file.")
+    st.error("No timestamp column found.")
     st.stop()
 
-data[time_col] = pd.to_datetime(data[time_col])
+# -----------------------
+# SAFE datetime conversion
+# -----------------------
+data[time_col] = pd.to_datetime(
+    data[time_col],
+    errors="coerce"   # <-- critical fix
+)
+
+# Drop rows with invalid timestamps
+data = data.dropna(subset=[time_col])
+
+if data.empty:
+    st.error("No valid timestamp data found after cleaning.")
+    st.stop()
+
 data = data.sort_values(time_col)
 
 # -----------------------
 # Detect Sensor Columns
 # -----------------------
-temp_col = None
-hum_col = None
-gas_col = None
+temp_col = "Temperature"
+hum_col = "Moisture"
+gas_col = "CO2"
 
 for col in data.columns:
-    col_lower = col.lower()
-
-    if temp_col is None and "temp" in col_lower:
+    c = col.lower()
+    if "temp" in c:
         temp_col = col
-
-    if hum_col is None and ("humidity" in col_lower or "moisture" in col_lower):
+    if "moisture" in c or "humidity" in c:
         hum_col = col
-
-    if gas_col is None and ("gas" in col_lower or "smoke" in col_lower or "co" in col_lower):
+    if "co" in c or "gas" in c:
         gas_col = col
-
-missing_cols = []
-if temp_col is None:
-    missing_cols.append("Temperature")
-if hum_col is None:
-    missing_cols.append("Humidity / Moisture")
-if gas_col is None:
-    missing_cols.append("Gas / Smoke")
-
-if missing_cols:
-    st.error(f"Missing sensor columns: {', '.join(missing_cols)}")
-    st.stop()
 
 # -----------------------
 # Sidebar Filter
@@ -93,6 +90,10 @@ start_time = latest_time - timedelta(minutes=minutes)
 
 filtered_data = data[data[time_col] >= start_time]
 
+if filtered_data.empty:
+    st.warning("No data available for the selected time range.")
+    st.stop()
+
 # -----------------------
 # Alert Logic
 # -----------------------
@@ -102,60 +103,34 @@ else:
     st.success("Kiln temperature is within safe limits")
 
 # -----------------------
-# Summary Metrics
+# Metrics
 # -----------------------
-col1, col2, col3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-col1.metric(
-    "Max Temperature (°C)",
-    round(filtered_data[temp_col].max(), 2)
+c1.metric("Max Temperature (°C)", round(filtered_data[temp_col].max(), 2))
+c2.metric("Average Moisture (%)", round(filtered_data[hum_col].mean(), 2))
+c3.metric("Average CO₂ Level", round(filtered_data[gas_col].mean(), 2))
+
+# -----------------------
+# Plots
+# -----------------------
+st.plotly_chart(
+    px.line(filtered_data, x=time_col, y=temp_col, title="Temperature Trend"),
+    use_container_width=True
 )
 
-col2.metric(
-    "Average Humidity (%)",
-    round(filtered_data[hum_col].mean(), 2)
+st.plotly_chart(
+    px.line(filtered_data, x=time_col, y=hum_col, title="Moisture Trend"),
+    use_container_width=True
 )
 
-col3.metric(
-    "Average Gas Level",
-    round(filtered_data[gas_col].mean(), 2)
+st.plotly_chart(
+    px.line(filtered_data, x=time_col, y=gas_col, title="CO₂ Trend"),
+    use_container_width=True
 )
 
 # -----------------------
-# Temperature Plot
+# Raw Data
 # -----------------------
-fig_temp = px.line(
-    filtered_data,
-    x=time_col,
-    y=temp_col,
-    title="Kiln Temperature Trend"
-)
-st.plotly_chart(fig_temp, use_container_width=True)
-
-# -----------------------
-# Humidity Plot
-# -----------------------
-fig_hum = px.line(
-    filtered_data,
-    x=time_col,
-    y=hum_col,
-    title="Biomass Humidity / Moisture Trend"
-)
-st.plotly_chart(fig_hum, use_container_width=True)
-
-# -----------------------
-# Gas Plot
-# -----------------------
-fig_gas = px.line(
-    filtered_data,
-    x=time_col,
-    y=gas_col,
-    title="Gas / Smoke Level Trend"
-)
-st.plotly_chart(fig_gas, use_container_width=True)
-
-# -----------------------
-# Raw Data View
-# -----------------------
-with st.expander("View filtered data"):
+with st.expander("View cleaned data"):
     st.dataframe(filtered_data)
