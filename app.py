@@ -7,109 +7,155 @@ st.set_page_config(page_title="Kiln Monitoring Dashboard", layout="wide")
 
 st.title("Kiln IoT Monitoring – Historical Data")
 
-st.write("Upload the sensor data file exported from the IoT system.")
+st.write("Upload the Excel file generated from the IoT system.")
 
 # -----------------------
 # File Upload
 # -----------------------
 uploaded_file = st.file_uploader(
-    "Upload Excel file",
+    "Upload sensor data (Excel)",
     type=["xlsx"]
 )
 
-if uploaded_file is not None:
+if uploaded_file is None:
+    st.info("Please upload an Excel file to continue.")
+    st.stop()
 
-    # Read excel file
-    data = pd.read_excel(uploaded_file)
+# -----------------------
+# Read Data
+# -----------------------
+data = pd.read_excel(uploaded_file)
 
-    # Convert timestamp column
-    data["timestamp"] = pd.to_datetime(data["timestamp"])
+st.write("Detected columns:", data.columns.tolist())
 
-    # Sort data just in case
-    data = data.sort_values("timestamp")
+# -----------------------
+# Detect Timestamp Column
+# -----------------------
+time_col = None
+time_keywords = ["timestamp", "time", "datetime", "date"]
 
-    # -----------------------
-    # Time Filter
-    # -----------------------
-    st.sidebar.header("Data Filter")
+for col in data.columns:
+    if any(key in col.lower() for key in time_keywords):
+        time_col = col
+        break
 
-    minutes = st.sidebar.selectbox(
-        "Show data for last",
-        [30, 60, 90, 120],
-        index=0
-    )
+if time_col is None:
+    st.error("No time-related column found. Please check the Excel file.")
+    st.stop()
 
-    latest_time = data["timestamp"].max()
-    start_time = latest_time - timedelta(minutes=minutes)
+data[time_col] = pd.to_datetime(data[time_col])
+data = data.sort_values(time_col)
 
-    filtered_data = data[data["timestamp"] >= start_time]
+# -----------------------
+# Detect Sensor Columns
+# -----------------------
+temp_col = None
+hum_col = None
+gas_col = None
 
-    # -----------------------
-    # Alert Logic
-    # -----------------------
-    if filtered_data["kiln_temp"].max() > 450:
-        st.warning("⚠ Warning: Kiln temperature exceeded safe limit (450°C)")
-    else:
-        st.success("Kiln temperature is within safe range")
+for col in data.columns:
+    col_lower = col.lower()
 
-    # -----------------------
-    # Summary Values
-    # -----------------------
-    col1, col2, col3 = st.columns(3)
+    if temp_col is None and "temp" in col_lower:
+        temp_col = col
 
-    col1.metric(
-        "Max Temperature (°C)",
-        round(filtered_data["kiln_temp"].max(), 1)
-    )
+    if hum_col is None and ("humidity" in col_lower or "moisture" in col_lower):
+        hum_col = col
 
-    col2.metric(
-        "Average Humidity (%)",
-        round(filtered_data["humidity"].mean(), 1)
-    )
+    if gas_col is None and ("gas" in col_lower or "smoke" in col_lower or "co" in col_lower):
+        gas_col = col
 
-    col3.metric(
-        "Average Gas Level (ppm)",
-        round(filtered_data["gas"].mean(), 1)
-    )
+missing_cols = []
+if temp_col is None:
+    missing_cols.append("Temperature")
+if hum_col is None:
+    missing_cols.append("Humidity / Moisture")
+if gas_col is None:
+    missing_cols.append("Gas / Smoke")
 
-    # -----------------------
-    # Temperature Plot
-    # -----------------------
-    temp_plot = px.line(
-        filtered_data,
-        x="timestamp",
-        y="kiln_temp",
-        title="Kiln Temperature Trend"
-    )
-    st.plotly_chart(temp_plot, use_container_width=True)
+if missing_cols:
+    st.error(f"Missing sensor columns: {', '.join(missing_cols)}")
+    st.stop()
 
-    # -----------------------
-    # Humidity Plot
-    # -----------------------
-    humidity_plot = px.line(
-        filtered_data,
-        x="timestamp",
-        y="humidity",
-        title="Biomass Humidity Trend"
-    )
-    st.plotly_chart(humidity_plot, use_container_width=True)
+# -----------------------
+# Sidebar Filter
+# -----------------------
+st.sidebar.header("Data Filter")
 
-    # -----------------------
-    # Gas Plot
-    # -----------------------
-    gas_plot = px.line(
-        filtered_data,
-        x="timestamp",
-        y="gas",
-        title="Smoke / Gas Level Trend"
-    )
-    st.plotly_chart(gas_plot, use_container_width=True)
+minutes = st.sidebar.selectbox(
+    "Show data for last",
+    [30, 60, 90, 120],
+    index=0
+)
 
-    # -----------------------
-    # Raw Data View
-    # -----------------------
-    with st.expander("View filtered sensor data"):
-        st.dataframe(filtered_data)
+latest_time = data[time_col].max()
+start_time = latest_time - timedelta(minutes=minutes)
 
+filtered_data = data[data[time_col] >= start_time]
+
+# -----------------------
+# Alert Logic
+# -----------------------
+if filtered_data[temp_col].max() > 450:
+    st.warning("⚠ Warning: Kiln temperature exceeded 450°C")
 else:
-    st.info("Please upload an Excel file to view the dashboard.")
+    st.success("Kiln temperature is within safe limits")
+
+# -----------------------
+# Summary Metrics
+# -----------------------
+col1, col2, col3 = st.columns(3)
+
+col1.metric(
+    "Max Temperature (°C)",
+    round(filtered_data[temp_col].max(), 2)
+)
+
+col2.metric(
+    "Average Humidity (%)",
+    round(filtered_data[hum_col].mean(), 2)
+)
+
+col3.metric(
+    "Average Gas Level",
+    round(filtered_data[gas_col].mean(), 2)
+)
+
+# -----------------------
+# Temperature Plot
+# -----------------------
+fig_temp = px.line(
+    filtered_data,
+    x=time_col,
+    y=temp_col,
+    title="Kiln Temperature Trend"
+)
+st.plotly_chart(fig_temp, use_container_width=True)
+
+# -----------------------
+# Humidity Plot
+# -----------------------
+fig_hum = px.line(
+    filtered_data,
+    x=time_col,
+    y=hum_col,
+    title="Biomass Humidity / Moisture Trend"
+)
+st.plotly_chart(fig_hum, use_container_width=True)
+
+# -----------------------
+# Gas Plot
+# -----------------------
+fig_gas = px.line(
+    filtered_data,
+    x=time_col,
+    y=gas_col,
+    title="Gas / Smoke Level Trend"
+)
+st.plotly_chart(fig_gas, use_container_width=True)
+
+# -----------------------
+# Raw Data View
+# -----------------------
+with st.expander("View filtered data"):
+    st.dataframe(filtered_data)
