@@ -31,40 +31,22 @@ st.write("Detected columns:", data.columns.tolist())
 # -----------------------
 # Generate Default Timestamp
 # -----------------------
-SAMPLING_INTERVAL_SEC = 10  # adjust if needed
+SAMPLING_INTERVAL_SEC = 10  # assumed logging interval
 
 num_rows = len(data)
 end_time = datetime.now()
 
-generated_time = [
+data["Time"] = [
     end_time - timedelta(seconds=SAMPLING_INTERVAL_SEC * (num_rows - i - 1))
     for i in range(num_rows)
 ]
 
-data["Time"] = generated_time
-
 # -----------------------
 # Detect Sensor Columns
 # -----------------------
-temp_col = None
-hum_col = None
-gas_col = None
-
-for col in data.columns:
-    c = col.lower()
-
-    if temp_col is None and "temp" in c:
-        temp_col = col
-
-    if hum_col is None and ("moisture" in c or "humidity" in c):
-        hum_col = col
-
-    if gas_col is None and ("co" in c or "gas" in c):
-        gas_col = col
-
-if temp_col is None or hum_col is None or gas_col is None:
-    st.error("Required sensor columns not found.")
-    st.stop()
+temp_col = "Temperature"
+hum_col = "Moisture"
+gas_col = "CO2"
 
 # -----------------------
 # Sidebar Filter
@@ -83,39 +65,75 @@ start_time = latest_time - timedelta(minutes=minutes)
 filtered_data = data[data["Time"] >= start_time]
 
 # -----------------------
-# Alert Logic
+# Live Alert Logic
 # -----------------------
-if filtered_data[temp_col].max() > 450:
-    st.warning("⚠ Warning: Kiln temperature exceeded 450°C")
+TEMP_LIMIT = 450
+
+if filtered_data[temp_col].max() > TEMP_LIMIT:
+    st.error("🚨 ALERT: Kiln temperature exceeded 450°C")
 else:
-    st.success("Kiln temperature is within safe limits")
+    st.success("✅ Kiln temperature within safe limits")
 
 # -----------------------
-# Metrics
+# Summary Metrics
 # -----------------------
 c1, c2, c3 = st.columns(3)
 
 c1.metric("Max Temperature (°C)", round(filtered_data[temp_col].max(), 2))
 c2.metric("Average Moisture (%)", round(filtered_data[hum_col].mean(), 2))
-c3.metric("Average Gas Level", round(filtered_data[gas_col].mean(), 2))
+c3.metric("Average CO₂ Level", round(filtered_data[gas_col].mean(), 2))
 
 # -----------------------
-# Plots
+# Temperature Plot with Alert Line
+# -----------------------
+temp_fig = px.line(
+    filtered_data,
+    x="Time",
+    y=temp_col,
+    title="Kiln Temperature Trend"
+)
+
+temp_fig.add_hline(
+    y=TEMP_LIMIT,
+    line_dash="dash",
+    annotation_text="Temp Limit (450°C)"
+)
+
+st.plotly_chart(temp_fig, use_container_width=True)
+
+# -----------------------
+# Humidity Plot
 # -----------------------
 st.plotly_chart(
-    px.line(filtered_data, x="Time", y=temp_col, title="Temperature Trend"),
+    px.line(filtered_data, x="Time", y=hum_col, title="Biomass Moisture Trend"),
     use_container_width=True
 )
 
+# -----------------------
+# Gas Plot
+# -----------------------
 st.plotly_chart(
-    px.line(filtered_data, x="Time", y=hum_col, title="Moisture Trend"),
+    px.line(filtered_data, x="Time", y=gas_col, title="CO₂ / Gas Trend"),
     use_container_width=True
 )
 
-st.plotly_chart(
-    px.line(filtered_data, x="Time", y=gas_col, title="Gas / Smoke Trend"),
-    use_container_width=True
-)
+# -----------------------
+# Alert History from Excel
+# -----------------------
+st.subheader("⚠ Alert History")
+
+if "Alert" in data.columns:
+    alert_data = data[data["Alert"].notna()]
+
+    if not alert_data.empty:
+        st.dataframe(
+            alert_data[["Time", "Alert", "Alert Value"]],
+            use_container_width=True
+        )
+    else:
+        st.info("No alerts recorded in the selected data.")
+else:
+    st.info("Alert column not found in the uploaded file.")
 
 # -----------------------
 # Raw Data
