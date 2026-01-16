@@ -7,7 +7,7 @@ st.set_page_config(page_title="Kiln Monitoring Dashboard", layout="wide")
 
 st.title("Kiln IoT Monitoring – Historical Data")
 
-st.write("Upload the Excel file generated from the IoT system.")
+st.write("Historical visualization of sensor data collected from the kiln monitoring system.")
 
 # -----------------------
 # File Upload
@@ -18,11 +18,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is None:
-    st.info("Please upload an Excel file to continue.")
+    st.info("Please upload an Excel file to view the dashboard.")
     st.stop()
 
 # -----------------------
-# Read Data
+# Load Data
 # -----------------------
 data = pd.read_excel(uploaded_file)
 
@@ -42,52 +42,38 @@ data["Time"] = [
 ]
 
 # -----------------------
-# Detect Sensor Columns
+# Column Mapping (based on your file)
 # -----------------------
 temp_col = "Temperature"
 hum_col = "Moisture"
 gas_col = "CO2"
 
 # -----------------------
-# Sidebar Filter
-# -----------------------
-st.sidebar.header("Data Filter")
-
-minutes = st.sidebar.selectbox(
-    "Show data for last",
-    [30, 60, 90, 120],
-    index=0
-)
-
-latest_time = data["Time"].max()
-start_time = latest_time - timedelta(minutes=minutes)
-
-filtered_data = data[data["Time"] >= start_time]
-
-# -----------------------
-# Live Alert Logic
+# Alert Logic
 # -----------------------
 TEMP_LIMIT = 450
 
-if filtered_data[temp_col].max() > TEMP_LIMIT:
+if data[temp_col].max() > TEMP_LIMIT:
     st.error("🚨 ALERT: Kiln temperature exceeded 450°C")
 else:
-    st.success("✅ Kiln temperature within safe limits")
+    st.success("✅ Kiln temperature is within safe operating limits")
 
 # -----------------------
-# Summary Metrics
+# KPI Metrics
 # -----------------------
-c1, c2, c3 = st.columns(3)
+m1, m2, m3 = st.columns(3)
 
-c1.metric("Max Temperature (°C)", round(filtered_data[temp_col].max(), 2))
-c2.metric("Average Moisture (%)", round(filtered_data[hum_col].mean(), 2))
-c3.metric("Average CO₂ Level", round(filtered_data[gas_col].mean(), 2))
+m1.metric("Max Temperature (°C)", round(data[temp_col].max(), 2))
+m2.metric("Average Moisture (%)", round(data[hum_col].mean(), 2))
+m3.metric("Average CO₂ Level", round(data[gas_col].mean(), 2))
+
+st.divider()
 
 # -----------------------
-# Temperature Plot with Alert Line
+# Temperature Graph
 # -----------------------
 temp_fig = px.line(
-    filtered_data,
+    data,
     x="Time",
     y=temp_col,
     title="Kiln Temperature Trend"
@@ -96,47 +82,52 @@ temp_fig = px.line(
 temp_fig.add_hline(
     y=TEMP_LIMIT,
     line_dash="dash",
-    annotation_text="Temp Limit (450°C)"
+    annotation_text="Safety Limit (450°C)"
 )
 
 st.plotly_chart(temp_fig, use_container_width=True)
 
 # -----------------------
-# Humidity Plot
+# Moisture Graph
 # -----------------------
-st.plotly_chart(
-    px.line(filtered_data, x="Time", y=hum_col, title="Biomass Moisture Trend"),
-    use_container_width=True
+hum_fig = px.line(
+    data,
+    x="Time",
+    y=hum_col,
+    title="Biomass Moisture Trend"
 )
 
-# -----------------------
-# Gas Plot
-# -----------------------
-st.plotly_chart(
-    px.line(filtered_data, x="Time", y=gas_col, title="CO₂ / Gas Trend"),
-    use_container_width=True
-)
+st.plotly_chart(hum_fig, use_container_width=True)
 
 # -----------------------
-# Alert History from Excel
+# Gas Graph
+# -----------------------
+gas_fig = px.line(
+    data,
+    x="Time",
+    y=gas_col,
+    title="CO₂ / Gas Concentration Trend"
+)
+
+st.plotly_chart(gas_fig, use_container_width=True)
+
+st.divider()
+
+# -----------------------
+# Alert History Table
 # -----------------------
 st.subheader("⚠ Alert History")
 
 if "Alert" in data.columns:
-    alert_data = data[data["Alert"].notna()]
+    alert_rows = data[data["Alert"].notna()]
 
-    if not alert_data.empty:
+    if not alert_rows.empty:
         st.dataframe(
-            alert_data[["Time", "Alert", "Alert Value"]],
-            use_container_width=True
+            alert_rows[["Time", "Alert", "Alert Value"]],
+            use_container_width=True,
+            height=250
         )
     else:
-        st.info("No alerts recorded in the selected data.")
+        st.info("No alert events recorded.")
 else:
-    st.info("Alert column not found in the uploaded file.")
-
-# -----------------------
-# Raw Data
-# -----------------------
-with st.expander("View data with generated timestamps"):
-    st.dataframe(filtered_data)
+    st.info("Alert data not available in the uploaded file.")
