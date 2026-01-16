@@ -1,144 +1,115 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import timedelta
 
-# ---------------- PAGE CONFIG ----------------
-st.set_page_config(
-    page_title="Sensor Historical Trend Analysis",
-    layout="wide"
-)
+st.set_page_config(page_title="Kiln Monitoring Dashboard", layout="wide")
 
-# ---------------- TITLE ----------------
-st.title("📊 Sensor Historical Trend Analysis")
-st.markdown(
-    "Upload an Excel file containing IoT sensor logs to visualize "
-    "historical trends and alert events."
-)
+st.title("Kiln IoT Monitoring – Historical Data")
 
-# ---------------- FILE UPLOADER ----------------
+st.write("Upload the sensor data file exported from the IoT system.")
+
+# -----------------------
+# File Upload
+# -----------------------
 uploaded_file = st.file_uploader(
-    "Upload Excel file (.xlsx)",
+    "Upload Excel file",
     type=["xlsx"]
 )
 
-if uploaded_file is None:
-    st.info("Please upload an Excel file to begin analysis.")
-    st.stop()
+if uploaded_file is not None:
 
-# ---------------- READ EXCEL ----------------
-xls = pd.ExcelFile(uploaded_file)
-sheet_names = xls.sheet_names
+    # Read excel file
+    data = pd.read_excel(uploaded_file)
 
-sensor_df = None
-alerts_df = None
+    # Convert timestamp column
+    data["timestamp"] = pd.to_datetime(data["timestamp"])
 
-# ---------------- AUTO-DETECT SENSOR DATA SHEET ----------------
-for sheet in sheet_names:
-    temp_df = pd.read_excel(xls, sheet)
-    temp_df.columns = temp_df.columns.str.lower().str.strip()
+    # Sort data just in case
+    data = data.sort_values("timestamp")
 
-    required_cols = {"timestamp", "temperature", "moisture", "co2"}
-    if required_cols.issubset(temp_df.columns):
-        sensor_df = temp_df.copy()
-        break
+    # -----------------------
+    # Time Filter
+    # -----------------------
+    st.sidebar.header("Data Filter")
 
-if sensor_df is None:
-    st.error(
-        "No valid sensor data sheet found.\n\n"
-        "Required columns:\n"
-        "- timestamp\n"
-        "- temperature\n"
-        "- moisture\n"
-        "- co2"
+    minutes = st.sidebar.selectbox(
+        "Show data for last",
+        [30, 60, 90, 120],
+        index=0
     )
-    st.stop()
 
-# ---------------- AUTO-DETECT ALERT SHEET (OPTIONAL) ----------------
-for sheet in sheet_names:
-    temp_df = pd.read_excel(xls, sheet)
-    temp_df.columns = temp_df.columns.str.lower().str.strip()
+    latest_time = data["timestamp"].max()
+    start_time = latest_time - timedelta(minutes=minutes)
 
-    if {"timestamp", "alert", "value"}.issubset(temp_df.columns) or \
-       {"timestamp", "alert_type", "value"}.issubset(temp_df.columns):
-        alerts_df = temp_df.copy()
-        break
+    filtered_data = data[data["timestamp"] >= start_time]
 
-# ---------------- ROBUST TIMESTAMP PARSING ----------------
-sensor_df["timestamp"] = pd.to_datetime(
-    sensor_df["timestamp"],
-    errors="coerce",
-    infer_datetime_format=True
-)
+    # -----------------------
+    # Alert Logic
+    # -----------------------
+    if filtered_data["kiln_temp"].max() > 450:
+        st.warning("⚠ Warning: Kiln temperature exceeded safe limit (450°C)")
+    else:
+        st.success("Kiln temperature is within safe range")
 
-sensor_df = sensor_df.dropna(subset=["timestamp"])
-sensor_df = sensor_df.sort_values("timestamp")
+    # -----------------------
+    # Summary Values
+    # -----------------------
+    col1, col2, col3 = st.columns(3)
 
-# ---------------- SIDEBAR FILTER ----------------
-minutes = st.sidebar.slider(
-    "Show last (minutes)",
-    min_value=5,
-    max_value=180,
-    value=30
-)
-
-cutoff = sensor_df["timestamp"].max() - pd.Timedelta(minutes=minutes)
-sensor_df = sensor_df[sensor_df["timestamp"] >= cutoff]
-
-# ---------------- PARSE ALERTS (IF PRESENT) ----------------
-if alerts_df is not None:
-    alerts_df["timestamp"] = pd.to_datetime(
-        alerts_df["timestamp"],
-        errors="coerce",
-        infer_datetime_format=True
+    col1.metric(
+        "Max Temperature (°C)",
+        round(filtered_data["kiln_temp"].max(), 1)
     )
-    alerts_df = alerts_df.dropna(subset=["timestamp"])
-    alerts_df = alerts_df[alerts_df["timestamp"] >= cutoff]
 
-# ---------------- EMPTY DATA SAFETY CHECK ----------------
-if sensor_df.empty:
-    st.warning(
-        "No sensor data available for the selected time window.\n"
-        "Try increasing the time range using the slider."
+    col2.metric(
+        "Average Humidity (%)",
+        round(filtered_data["humidity"].mean(), 1)
     )
-    st.stop()
 
-# ---------------- KPI METRICS ----------------
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Temperature (°C)", f"{sensor_df['temperature'].iloc[-1]:.2f}")
-col2.metric("Moisture (%)", f"{sensor_df['moisture'].iloc[-1]:.2f}")
-col3.metric("CO₂ (ppm)", f"{sensor_df['co2'].iloc[-1]:.2f}")
-col4.metric(
-    "Alerts (Selected Window)",
-    0 if alerts_df is None else len(alerts_df)
-)
-
-# ---------------- SENSOR TRENDS ----------------
-st.subheader("📈 Temperature Trend")
-st.plotly_chart(
-    px.line(sensor_df, x="timestamp", y="temperature"),
-    use_container_width=True
-)
-
-st.subheader("📈 Moisture Trend")
-st.plotly_chart(
-    px.line(sensor_df, x="timestamp", y="moisture"),
-    use_container_width=True
-)
-
-st.subheader("📈 CO₂ Trend")
-st.plotly_chart(
-    px.line(sensor_df, x="timestamp", y="co2"),
-    use_container_width=True
-)
-
-# ---------------- ALERT LOG ----------------
-st.subheader("🚨 Alert Log")
-
-if alerts_df is not None and not alerts_df.empty:
-    st.dataframe(
-        alerts_df.sort_values("timestamp", ascending=False),
-        use_container_width=True
+    col3.metric(
+        "Average Gas Level (ppm)",
+        round(filtered_data["gas"].mean(), 1)
     )
+
+    # -----------------------
+    # Temperature Plot
+    # -----------------------
+    temp_plot = px.line(
+        filtered_data,
+        x="timestamp",
+        y="kiln_temp",
+        title="Kiln Temperature Trend"
+    )
+    st.plotly_chart(temp_plot, use_container_width=True)
+
+    # -----------------------
+    # Humidity Plot
+    # -----------------------
+    humidity_plot = px.line(
+        filtered_data,
+        x="timestamp",
+        y="humidity",
+        title="Biomass Humidity Trend"
+    )
+    st.plotly_chart(humidity_plot, use_container_width=True)
+
+    # -----------------------
+    # Gas Plot
+    # -----------------------
+    gas_plot = px.line(
+        filtered_data,
+        x="timestamp",
+        y="gas",
+        title="Smoke / Gas Level Trend"
+    )
+    st.plotly_chart(gas_plot, use_container_width=True)
+
+    # -----------------------
+    # Raw Data View
+    # -----------------------
+    with st.expander("View filtered sensor data"):
+        st.dataframe(filtered_data)
+
 else:
-    st.info("No alerts detected in the selected time window.")
+    st.info("Please upload an Excel file to view the dashboard.")
