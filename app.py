@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Kiln Monitoring Dashboard", layout="wide")
 
@@ -29,50 +29,42 @@ data = pd.read_excel(uploaded_file)
 st.write("Detected columns:", data.columns.tolist())
 
 # -----------------------
-# Detect Timestamp Column
+# Generate Default Timestamp
 # -----------------------
-time_col = None
-for col in data.columns:
-    if "time" in col.lower():
-        time_col = col
-        break
+SAMPLING_INTERVAL_SEC = 10  # adjust if needed
 
-if time_col is None:
-    st.error("No timestamp column found.")
-    st.stop()
+num_rows = len(data)
+end_time = datetime.now()
 
-# -----------------------
-# SAFE datetime conversion
-# -----------------------
-data[time_col] = pd.to_datetime(
-    data[time_col],
-    errors="coerce"   # <-- critical fix
-)
+generated_time = [
+    end_time - timedelta(seconds=SAMPLING_INTERVAL_SEC * (num_rows - i - 1))
+    for i in range(num_rows)
+]
 
-# Drop rows with invalid timestamps
-data = data.dropna(subset=[time_col])
-
-if data.empty:
-    st.error("No valid timestamp data found after cleaning.")
-    st.stop()
-
-data = data.sort_values(time_col)
+data["Time"] = generated_time
 
 # -----------------------
 # Detect Sensor Columns
 # -----------------------
-temp_col = "Temperature"
-hum_col = "Moisture"
-gas_col = "CO2"
+temp_col = None
+hum_col = None
+gas_col = None
 
 for col in data.columns:
     c = col.lower()
-    if "temp" in c:
+
+    if temp_col is None and "temp" in c:
         temp_col = col
-    if "moisture" in c or "humidity" in c:
+
+    if hum_col is None and ("moisture" in c or "humidity" in c):
         hum_col = col
-    if "co" in c or "gas" in c:
+
+    if gas_col is None and ("co" in c or "gas" in c):
         gas_col = col
+
+if temp_col is None or hum_col is None or gas_col is None:
+    st.error("Required sensor columns not found.")
+    st.stop()
 
 # -----------------------
 # Sidebar Filter
@@ -85,14 +77,10 @@ minutes = st.sidebar.selectbox(
     index=0
 )
 
-latest_time = data[time_col].max()
+latest_time = data["Time"].max()
 start_time = latest_time - timedelta(minutes=minutes)
 
-filtered_data = data[data[time_col] >= start_time]
-
-if filtered_data.empty:
-    st.warning("No data available for the selected time range.")
-    st.stop()
+filtered_data = data[data["Time"] >= start_time]
 
 # -----------------------
 # Alert Logic
@@ -109,28 +97,28 @@ c1, c2, c3 = st.columns(3)
 
 c1.metric("Max Temperature (°C)", round(filtered_data[temp_col].max(), 2))
 c2.metric("Average Moisture (%)", round(filtered_data[hum_col].mean(), 2))
-c3.metric("Average CO₂ Level", round(filtered_data[gas_col].mean(), 2))
+c3.metric("Average Gas Level", round(filtered_data[gas_col].mean(), 2))
 
 # -----------------------
 # Plots
 # -----------------------
 st.plotly_chart(
-    px.line(filtered_data, x=time_col, y=temp_col, title="Temperature Trend"),
+    px.line(filtered_data, x="Time", y=temp_col, title="Temperature Trend"),
     use_container_width=True
 )
 
 st.plotly_chart(
-    px.line(filtered_data, x=time_col, y=hum_col, title="Moisture Trend"),
+    px.line(filtered_data, x="Time", y=hum_col, title="Moisture Trend"),
     use_container_width=True
 )
 
 st.plotly_chart(
-    px.line(filtered_data, x=time_col, y=gas_col, title="CO₂ Trend"),
+    px.line(filtered_data, x="Time", y=gas_col, title="Gas / Smoke Trend"),
     use_container_width=True
 )
 
 # -----------------------
 # Raw Data
 # -----------------------
-with st.expander("View cleaned data"):
+with st.expander("View data with generated timestamps"):
     st.dataframe(filtered_data)
