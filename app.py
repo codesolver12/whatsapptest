@@ -94,24 +94,20 @@ if alerts_df is not None:
     alerts_df = alerts_df.dropna(subset=["timestamp"])
     alerts_df = alerts_df[alerts_df["timestamp"] >= cutoff]
 
+# ---------------- EMPTY DATA SAFETY CHECK ----------------
+if sensor_df.empty:
+    st.warning(
+        "No sensor data available for the selected time window.\n"
+        "Try increasing the time range using the slider."
+    )
+    st.stop()
+
 # ---------------- KPI METRICS ----------------
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric(
-    "Temperature (°C)",
-    f"{sensor_df['temperature'].iloc[-1]:.2f}"
-)
-
-col2.metric(
-    "Moisture (%)",
-    f"{sensor_df['moisture'].iloc[-1]:.2f}"
-)
-
-col3.metric(
-    "CO₂ (ppm)",
-    f"{sensor_df['co2'].iloc[-1]:.2f}"
-)
-
+col1.metric("Temperature (°C)", f"{sensor_df['temperature'].iloc[-1]:.2f}")
+col2.metric("Moisture (%)", f"{sensor_df['moisture'].iloc[-1]:.2f}")
+col3.metric("CO₂ (ppm)", f"{sensor_df['co2'].iloc[-1]:.2f}")
 col4.metric(
     "Alerts (Selected Window)",
     0 if alerts_df is None else len(alerts_df)
@@ -120,34 +116,19 @@ col4.metric(
 # ---------------- SENSOR TRENDS ----------------
 st.subheader("📈 Temperature Trend")
 st.plotly_chart(
-    px.line(
-        sensor_df,
-        x="timestamp",
-        y="temperature",
-        labels={"temperature": "Temperature (°C)"}
-    ),
+    px.line(sensor_df, x="timestamp", y="temperature"),
     use_container_width=True
 )
 
 st.subheader("📈 Moisture Trend")
 st.plotly_chart(
-    px.line(
-        sensor_df,
-        x="timestamp",
-        y="moisture",
-        labels={"moisture": "Moisture (%)"}
-    ),
+    px.line(sensor_df, x="timestamp", y="moisture"),
     use_container_width=True
 )
 
 st.subheader("📈 CO₂ Trend")
 st.plotly_chart(
-    px.line(
-        sensor_df,
-        x="timestamp",
-        y="co2",
-        labels={"co2": "CO₂ (ppm)"}
-    ),
+    px.line(sensor_df, x="timestamp", y="co2"),
     use_container_width=True
 )
 
